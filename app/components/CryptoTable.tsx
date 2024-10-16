@@ -1,7 +1,7 @@
 'use client';
 
 import { formatPrice } from '@/app/utils/formatter';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, startTransition } from 'react';
 
 type CryptoData = {
     symbol: string;
@@ -12,24 +12,25 @@ type CryptoData = {
 export default function CryptoTable() {
     const [cryptoData, setCryptoData] = useState<{ [key: string]: CryptoData }>({});
     const [error, setError] = useState<string | null>(null);
-    const eventSourceRef = useRef<EventSource | null>(null); // Using useRef to manage the EventSource reference
 
+    // Function to set up an EventSource connection with auto-reconnection logic
     const connectToEventSource = useCallback(() => {
         const eventSource = new EventSource('/api/crypto');
-        eventSourceRef.current = eventSource; // Save the reference to the EventSource
 
         eventSource.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
                 if (data && data.symbol && typeof data.price === 'number') {
-                    setCryptoData((prevData) => {
-                        const newData = { ...prevData };
-                        newData[data.symbol] = {
-                            symbol: data.symbol,
-                            price: data.price,
-                            prevPrice: prevData[data.symbol]?.price,
-                        };
-                        return newData;
+                    startTransition(() => {
+                        setCryptoData((prevData) => {
+                            const newData = { ...prevData };
+                            newData[data.symbol] = {
+                                symbol: data.symbol,
+                                price: data.price,
+                                prevPrice: prevData[data.symbol]?.price,
+                            };
+                            return newData;
+                        });
                     });
                 } else {
                     console.log('Received unexpected data format:', data);
@@ -39,31 +40,24 @@ export default function CryptoTable() {
             }
         };
 
-        eventSource.onerror = () => {
-            console.error('EventSource failed. Attempting to reconnect...');
+        eventSource.onerror = (error) => {
+            console.error('EventSource error:', error);
             setError('Failed to connect to the data stream. Attempting to reconnect...');
             eventSource.close();
+
+            // Retry connection after a 5-second delay
+            setTimeout(connectToEventSource, 5000);
         };
 
         return eventSource;
     }, []);
 
+    // Effect to handle connection setup and clean up
     useEffect(() => {
-        connectToEventSource(); // Open connection when component mounts
-
-        const intervalId = setInterval(() => {
-            // Close and reopen the EventSource connection every 10 seconds
-            if (eventSourceRef.current) {
-                eventSourceRef.current.close();
-            }
-            connectToEventSource(); // Reopen connection
-        }, 10000); // 10-second interval
+        const eventSource = connectToEventSource();
 
         return () => {
-            if (eventSourceRef.current) {
-                eventSourceRef.current.close(); // Cleanup on unmount
-            }
-            clearInterval(intervalId); // Clear interval on unmount
+            eventSource.close();
         };
     }, [connectToEventSource]);
 
@@ -85,7 +79,7 @@ export default function CryptoTable() {
                         <tr key={crypto.symbol}>
                             <td className="px-6 py-4 whitespace-nowrap">{crypto.symbol}</td>
                             <td className={`px-6 py-4 whitespace-nowrap ${crypto.prevPrice && crypto.price > crypto.prevPrice ? 'text-green-600' :
-                                crypto.prevPrice && crypto.price < crypto.prevPrice ? 'text-red-600' : ''
+                                    crypto.prevPrice && crypto.price < crypto.prevPrice ? 'text-red-600' : ''
                                 }`}>
                                 {formatPrice(crypto.price)}
                             </td>

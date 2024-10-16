@@ -1,7 +1,7 @@
-'use client'
+'use client';
 
 import { formatPrice } from '@/app/utils/formatter';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 type CryptoData = {
     symbol: string;
@@ -12,9 +12,11 @@ type CryptoData = {
 export default function CryptoTable() {
     const [cryptoData, setCryptoData] = useState<{ [key: string]: CryptoData }>({});
     const [error, setError] = useState<string | null>(null);
+    const eventSourceRef = useRef<EventSource | null>(null); // Using useRef to manage the EventSource reference
 
     const connectToEventSource = useCallback(() => {
         const eventSource = new EventSource('/api/crypto');
+        eventSourceRef.current = eventSource; // Save the reference to the EventSource
 
         eventSource.onmessage = (event) => {
             try {
@@ -37,21 +39,31 @@ export default function CryptoTable() {
             }
         };
 
-        eventSource.onerror = (error) => {
-            console.error('EventSource failed:', error);
+        eventSource.onerror = () => {
+            console.error('EventSource failed. Attempting to reconnect...');
             setError('Failed to connect to the data stream. Attempting to reconnect...');
             eventSource.close();
-            setTimeout(connectToEventSource, 5000);
         };
 
         return eventSource;
     }, []);
 
     useEffect(() => {
-        const eventSource = connectToEventSource();
+        connectToEventSource(); // Open connection when component mounts
+
+        const intervalId = setInterval(() => {
+            // Close and reopen the EventSource connection every 10 seconds
+            if (eventSourceRef.current) {
+                eventSourceRef.current.close();
+            }
+            connectToEventSource(); // Reopen connection
+        }, 10000); // 10-second interval
 
         return () => {
-            eventSource.close();
+            if (eventSourceRef.current) {
+                eventSourceRef.current.close(); // Cleanup on unmount
+            }
+            clearInterval(intervalId); // Clear interval on unmount
         };
     }, [connectToEventSource]);
 

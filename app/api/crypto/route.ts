@@ -6,10 +6,18 @@ const cryptoPairs = ['btcusdt', 'ethusdt', 'bnbusdt', 'xrpusdt', 'adausdt'];
 export async function GET() {
     const encoder = new TextEncoder();
     const wsConnections: WebSocket[] = [];
+    let streamClosed = false; // Add a flag to track the stream's open state
 
     const readable = new ReadableStream({
         start(controller) {
-            cryptoPairs.forEach((pair) => {
+            const closeStream = () => {
+                if (!streamClosed) {
+                    streamClosed = true; // Update the flag when the stream is closed
+                    controller.close();
+                }
+            };
+
+            cryptoPairs.forEach(pair => {
                 const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${pair}@trade`);
 
                 ws.on('open', () => {
@@ -24,7 +32,11 @@ export async function GET() {
                                 symbol: parsedData.s,
                                 price: parseFloat(parsedData.p),
                             };
-                            controller.enqueue(encoder.encode(`data: ${JSON.stringify(formattedData)}\n\n`));
+
+                            // Only enqueue data if the stream is not closed
+                            if (!streamClosed) {
+                                controller.enqueue(encoder.encode(`data: ${JSON.stringify(formattedData)}\n\n`));
+                            }
                         } else {
                             console.log(`Received unexpected data format for ${pair}:`, parsedData);
                         }
@@ -35,22 +47,21 @@ export async function GET() {
 
                 ws.on('error', (error) => {
                     console.error(`WebSocket error for ${pair}:`, error);
+                    closeStream();
                 });
 
                 ws.on('close', () => {
                     console.log(`WebSocket connection closed for ${pair}`);
-                    // Attempt to reconnect after a short delay
-                    setTimeout(() => {
-                        const newWs = new WebSocket(`wss://stream.binance.com:9443/ws/${pair}@trade`);
-                        wsConnections[wsConnections.indexOf(ws)] = newWs;
-                    }, 5000);
+                    closeStream();
                 });
 
                 wsConnections.push(ws);
             });
         },
         cancel() {
-            wsConnections.forEach((ws) => ws.close());
+            // When the stream is canceled, close all WebSocket connections
+            wsConnections.forEach(ws => ws.close());
+            streamClosed = true;
         },
     });
 

@@ -1,4 +1,4 @@
-import CryptoTable from "@/components/CryptoTable";
+import CryptoTable from "@/app/components/CryptoTable";
 
 export default function Home() {
   return (

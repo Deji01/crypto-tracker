@@ -1,6 +1,6 @@
 'use client'
 
-import { formatPrice } from '@/utils/formatter';
+import { formatPrice } from '@/app/utils/formatter';
 import { useState, useEffect, useCallback } from 'react';
 
 type CryptoData = {
